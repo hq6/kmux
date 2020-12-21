@@ -19,6 +19,10 @@ def main():
                       metavar='KUBE_CONTEXT',
                       type=str,
                       help='The Kubernetes context to pull pods from. Defaults to current context.')
+  parser.add_argument('--no_create', '-n', action='store_true',
+                      help='Do not crerate new tmux windows and panes. Run the ' +
+                      'commands in only the first found pod in the current ' +
+                      'window. One pane will be created if kmux is not started inside a tmux.')
   parser.add_argument('commands_file', nargs='?',
                       type=argparse.FileType('r'),
                       default=open(os.devnull, 'r'),
@@ -82,7 +86,9 @@ def main():
       f'KUBE_CONTEXT={KUBE_CONTEXT}',
       f'KUBE_NAMESPACE={KUBE_NAMESPACE}'] + (commands) for POD in PODS]
 
-  smux.create(len(pod_commands), pod_commands, executeBeforeAttach=lambda : smux.tcmd("setw synchronize-panes on"))
+  smux.create(len(pod_commands), pod_commands[1:] if options.no_create else pod_commands,
+      executeAfterCreate=lambda : smux.tcmd("setw synchronize-panes on"),
+      noCreate=options.no_create)
 
 if __name__ == "__main__":
     # execute only if run as a script
