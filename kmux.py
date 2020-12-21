@@ -8,7 +8,23 @@ import sys, os
 import re
 
 def main():
-  parser = argparse.ArgumentParser(description='Start tmux panes on K8 pods.')
+  description = """\
+  Start tmux panes on K8 pods. The env variables POD, KUBE_CONTEXT, and
+  KUBE_NAMESPACE will be set in each pane.
+
+  Command line options can be specified in three
+  locations; higher-numbered places override over-numbered locations.
+  1) The environmental varabie KMUX_ARGS.
+  2) Options passed to the current command directly on the command line.
+  3) When the input file contains a line that starts with `---`, the lines of
+     the input file above that line are joined together by spaces an d treated
+     as options. This option takes precedence over locations 1) and 2) so that
+     commands in an input file can make strong assumptions about which
+     environment they are running in, should they want to. In this section
+     only, lines that start with `#` and blank lines are treated as comments
+     and ignored.
+  """
+  parser = argparse.ArgumentParser(description=description, formatter_class=argparse.RawTextHelpFormatter)
   parser.add_argument('--pods', '-p', metavar='PODS', type=str,
                       help='Whitespace-separated list of pods. When given, -r is ignored.')
   parser.add_argument('--pod_name_regex', '-r',
@@ -20,15 +36,13 @@ def main():
                       type=str,
                       help='The Kubernetes context to pull pods from. Defaults to current context.')
   parser.add_argument('--no_create', '-n', action='store_true',
-                      help='Do not crerate new tmux windows and panes. Run the ' +
+                      help='Do not create new tmux windows and panes. Run the ' +
                       'commands in only the first found pod in the current ' +
                       'window. One pane will be created if kmux is not started inside a tmux.')
   parser.add_argument('commands_file', nargs='?',
                       type=argparse.FileType('r'),
                       default=open(os.devnull, 'r'),
-                      help="Commands to run against every pod. " +
-                      "The env variables POD, KUBE_CONTEXT, and KUBE_NAMESPACE will be set before these commands are run." +
-                      "If not given, will be read from stdin.")
+                      help="A file containing shell commands to run in each pane.")
 
   # Check for environmental variable with args, command line overrides
   args = argv[1:]
