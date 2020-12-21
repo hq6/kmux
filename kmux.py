@@ -73,6 +73,9 @@ def main():
     # Filter by regex if given
     if options.pod_name_regex:
       PODS = [pod for pod in PODS if options.pod_name_regex.match(pod)]
+  if not PODS:
+    print("No pods selected.")
+    return
   ################################################################################ 
   pod_commands = [[
       f'POD={POD}',
