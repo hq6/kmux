@@ -26,7 +26,12 @@ def main():
                       "The env variables POD, KUBE_CONTEXT, and KUBE_NAMESPACE will be set before these commands are run." +
                       "If not given, will be read from stdin.")
 
-  options = parser.parse_args(argv[1:])
+  # Check for environmental variable with args, command line overrides
+  args = argv[1:]
+  if 'KMUX_ARGS' in os.environ:
+    args = os.environ['KMUX_ARGS'].split() + args
+
+  options = parser.parse_args(args)
   commands = options.commands_file.read().strip().split("\n")
   # Deal with Python split producing an extra empty string at the end when
   # input is one or zero lines by removing it.
