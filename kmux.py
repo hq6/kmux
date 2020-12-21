@@ -6,6 +6,7 @@ import argparse
 from sys import argv
 import sys, os
 import re
+import shlex
 
 def main():
   description = """\
@@ -47,7 +48,7 @@ def main():
   # Check for environmental variable with args, command line overrides
   args = argv[1:]
   if 'KMUX_ARGS' in os.environ:
-    args = os.environ['KMUX_ARGS'].split() + args
+    args = shlex.split(os.environ['KMUX_ARGS']) + args
 
   options = parser.parse_args(args)
   commands = options.commands_file.read().strip().split("\n")
