@@ -1,1 +1,4 @@
 .*.swp
+build/
+dist/
+kmux.py.egg-info/
