@@ -112,7 +112,7 @@ def main():
       f'KUBE_CONTEXT={KUBE_CONTEXT}',
       f'KUBE_NAMESPACE={KUBE_NAMESPACE}'] + (commands) for POD in PODS]
 
-  smux.create(len(pod_commands), pod_commands[1:] if options.no_create else pod_commands,
+  smux.create(len(pod_commands), pod_commands[:1] if options.no_create else pod_commands,
       executeAfterCreate=lambda : smux.tcmd("setw synchronize-panes on"),
       noCreate=options.no_create)
 
