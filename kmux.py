@@ -52,6 +52,17 @@ def main():
 
   options = parser.parse_args(args)
   commands = options.commands_file.read().strip().split("\n")
+
+  # If commands include options `---`, add them and re-evaluate options. Note
+  # that the positional argument `commands_file` is ignored if it appears in
+  # the options at the top of the file.
+  for i, command in enumerate(commands[:]):
+    if command.startswith("---"):
+       args += shlex.split(
+           " ".join([c.strip() for c in commands[:i] if not c.startswith("#") and c.strip()]))
+       options = parser.parse_args(args)
+       commands = commands[i+1:]
+
   # Deal with Python split producing an extra empty string at the end when
   # input is one or zero lines by removing it.
   if commands[-1] == '':
