@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 
-from kubernetes import client, config
-import smux
 import argparse
-from sys import argv
 import sys, os
 import re
 import shlex
+import smux
+from sys import argv
+from kubernetes import client, config
 
 def main():
   description = """\
