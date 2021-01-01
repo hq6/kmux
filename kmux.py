@@ -115,9 +115,10 @@ def main():
   # We hardcode useThreads to True because it is assumed that operations on
   # different pods are independent. This can be made an option if it seems
   # useful to be able to disable.
-  smux.create(len(pod_commands), pod_commands[:1] if options.no_create else pod_commands,
-      executeAfterCreate=lambda : smux.tcmd("setw synchronize-panes on"),
-      noCreate=options.no_create, useThreads=True)
+  smux.create(1 if options.no_create else len(pod_commands),
+              pod_commands[:1] if options.no_create else pod_commands,
+              executeAfterCreate=lambda : smux.tcmd("setw synchronize-panes on"),
+              noCreate=options.no_create, useThreads=True)
 
 if __name__ == "__main__":
     # execute only if run as a script
