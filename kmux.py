@@ -132,13 +132,26 @@ def main():
         apps_kube_client = client.AppsV1Api(api_client=api_client)
         if KUBE_NAMESPACE is not None:
             replica_sets = apps_kube_client.list_namespaced_replica_set(KUBE_NAMESPACE).items
+            deployments = apps_kube_client.list_namespaced_deployment(KUBE_NAMESPACE).items
         else:
             replica_sets = apps_kube_client.list_replica_set_for_all_namespaces().items
+            deployments = apps_kube_client.list_deployment_for_all_namespaces().items
+        # Search for matching deployment.
+        deployment_uid = None
+        for deployment in deployments:
+            if deployment.metadata.name == options.deployment:
+                deployment_uid = deployment.metadata.uid
+                break
+        if deployment_uid is None:
+            print(f'Deployment "{options.deployment}" does not exist in namespace ' +
+                f'"{KUBE_NAMESPACE}" of context "{KUBE_CONTEXT}".')
+            sys.exit(1)
         replica_sets = [x for x in replica_sets if not x.spec.replicas == 0 and \
-            x.metadata.owner_references[0].name == options.deployment]
-        replica_set_names = [x.metadata.name for x in replica_sets]
+            x.metadata.owner_references and \
+            x.metadata.owner_references[0].uid == deployment_uid]
+        replica_set_uids = [x.metadata.uid for x in replica_sets]
         podObjects = [pod for pod in podObjects if pod.metadata.owner_references and \
-            pod.metadata.owner_references[0].name in replica_set_names]
+            pod.metadata.owner_references[0].uid in replica_set_uids]
 
     # Filter by regex if given
     if options.pod_name_regex:
