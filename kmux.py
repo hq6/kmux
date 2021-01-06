@@ -40,6 +40,8 @@ def main():
                       help='Do not create new tmux windows and panes. Run the ' +
                       'commands in only the first found pod in the current ' +
                       'window. One pane will be created if kmux is not started inside a tmux.')
+  parser.add_argument('--dry_run', '-d', action='store_true',
+                      help='Do not run any tmux commands. Instead, write an smux file to stdout.')
   parser.add_argument('commands_file', nargs='?',
                       type=argparse.FileType('r'),
                       default=open(os.devnull, 'r'),
@@ -112,6 +114,18 @@ def main():
       f'KUBE_CONTEXT={KUBE_CONTEXT}',
       f'KUBE_NAMESPACE={KUBE_NAMESPACE}'] + (commands) for POD in PODS]
 
+  if options.dry_run:
+      if options.no_create:
+          print("NO_CREATE")
+      print("USE_THREADS")
+      for pc in pod_commands:
+          print("---")
+          for c in pc:
+              print(c)
+          # Smux will ignore NO_CREATE if more than one command is passed.
+          if options.no_create:
+              break
+      return
   # We hardcode useThreads to True because it is assumed that operations on
   # different pods are independent. This can be made an option if it seems
   # useful to be able to disable.
