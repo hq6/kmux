@@ -81,7 +81,9 @@ def main():
   config.load_kube_config()
   contexts = config.list_kube_config_contexts()[0]
   current_context = config.list_kube_config_contexts()[1]['name']
-  current_namespace = config.list_kube_config_contexts()[1]['context']['namespace']
+  current_namespace = None
+  if 'namespace' in config.list_kube_config_contexts()[1]['context']:
+      current_namespace = config.list_kube_config_contexts()[1]['context']['namespace']
 
   PODS = None
   KUBE_CONTEXT = None
@@ -89,12 +91,18 @@ def main():
 
   if options.kube_context:
     KUBE_CONTEXT = options.kube_context
+    # This variable is needed because we cannot rely on the value of
+    # KUBE_NAMESPACE to determine whether we found the requested context, since
+    # KUBE_NAMESPACE is None for non-namespaced K8 setups.
+    foundContext = False
     for context in contexts:
       if context['name'] == KUBE_CONTEXT:
-        KUBE_NAMESPACE = context['context']['namespace']
+        if 'namespace' in context['context']:
+            KUBE_NAMESPACE = context['context']['namespace']
+        foundContext = True
         break
-    if not KUBE_NAMESPACE:
-      print(f"Invalid context {KUBE_CONTEXT} given")
+    if not foundContext:
+      print(f"Invalid context {KUBE_CONTEXT} given.")
       sys.exit(1)
   else:
     KUBE_CONTEXT = current_context
@@ -106,7 +114,10 @@ def main():
     api_client = config.new_client_from_config(context=KUBE_CONTEXT)
     # Collect all the pods in the context.
     core_kube_client = client.CoreV1Api(api_client=api_client)
-    podObjects = core_kube_client.list_namespaced_pod(KUBE_NAMESPACE).items
+    if KUBE_NAMESPACE is not None:
+        podObjects = core_kube_client.list_namespaced_pod(KUBE_NAMESPACE).items
+    else:
+        podObjects = core_kube_client.list_pod_for_all_namespaces().items
 
     # Filter by deployment if given.
     # 1. Find all ReplicaSets that are owned by the target deployment.
@@ -119,11 +130,15 @@ def main():
     # all would be substantially slow down kmux.
     if options.deployment:
         apps_kube_client = client.AppsV1Api(api_client=api_client)
-        replica_sets = apps_kube_client.list_namespaced_replica_set(KUBE_NAMESPACE).items
+        if KUBE_NAMESPACE is not None:
+            replica_sets = apps_kube_client.list_namespaced_replica_set(KUBE_NAMESPACE).items
+        else:
+            replica_sets = apps_kube_client.list_replica_set_for_all_namespaces().items
         replica_sets = [x for x in replica_sets if not x.spec.replicas == 0 and \
             x.metadata.owner_references[0].name == options.deployment]
         replica_set_names = [x.metadata.name for x in replica_sets]
-        podObjects = [pod for pod in podObjects if pod.metadata.owner_references[0].name in replica_set_names]
+        podObjects = [pod for pod in podObjects if pod.metadata.owner_references and \
+            pod.metadata.owner_references[0].name in replica_set_names]
 
     # Filter by regex if given
     if options.pod_name_regex:
@@ -137,7 +152,8 @@ def main():
   pod_commands = [[
       f'POD={POD}',
       f'KUBE_CONTEXT={KUBE_CONTEXT}',
-      f'KUBE_NAMESPACE={KUBE_NAMESPACE}'] + (commands) for POD in PODS]
+      *([f'KUBE_NAMESPACE={KUBE_NAMESPACE}',] if KUBE_NAMESPACE is not None else [])] + \
+      (commands) for POD in PODS]
 
   if options.dry_run:
       if options.no_create:
