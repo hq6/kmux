@@ -39,6 +39,10 @@ def main():
                       help='Regular expression matching a pod in the namespace.')
   parser.add_argument('--deployment', '-d', metavar='DEPLOYMENT', type=str,
                       help='Deployment to select pods from. Defaults to all pods when omitted.')
+  parser.add_argument('--label_selector', '--selector', '-l', metavar='LABEL_SELECTOR', type=str,
+                      help='Equivalent to kubectl get pods --selector.')
+  parser.add_argument('--field_selector', '--field-selector', '-f', metavar='FIELD_SELECTOR', type=str,
+                      help='Equivalent to kubectl get pods --field-selector.')
   parser.add_argument('--kube_context', '-k',
                       metavar='KUBE_CONTEXT',
                       type=str,
@@ -115,9 +119,13 @@ def main():
     # Collect all the pods in the context.
     core_kube_client = client.CoreV1Api(api_client=api_client)
     if KUBE_NAMESPACE is not None:
-        podObjects = core_kube_client.list_namespaced_pod(KUBE_NAMESPACE).items
+        podObjects = core_kube_client.list_namespaced_pod(KUBE_NAMESPACE,
+            label_selector=options.label_selector,
+            field_selector=options.field_selector).items
     else:
-        podObjects = core_kube_client.list_pod_for_all_namespaces().items
+        podObjects = core_kube_client.list_pod_for_all_namespaces(
+            label_selector=options.label_selector,
+            field_selector=options.field_selector).items
 
     # Filter by deployment if given.
     # 1. Find all ReplicaSets that are owned by the target deployment.
