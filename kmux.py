@@ -10,8 +10,17 @@ from kubernetes import client, config
 
 def main():
   description = """\
-  Start tmux panes on K8 pods. The env variables POD, KUBE_CONTEXT, and
-  KUBE_NAMESPACE will be set in each pane.
+  kmux.py takes a list of pods and a list of commands and generates their cross
+  product in the form of interactive tmux panes, where each pane corresponds to
+  a pod that each set of commands is executed against.
+
+  The env variables POD, KUBE_CONTEXT will be set in each pane. KUBE_NAMESPACE
+  will be set iff running kubectl against a namespaced context.
+
+  The three core options are `--pods`, `--kube_context`, and the
+  `commands_file` positional argument. All other options exist only for
+  improved ergonomics, because one can always use an arbitrary program to
+  compute a list of pods and pass them to kmux.py.
 
   Command line options can be specified in three
   locations; higher-numbered places override over-numbered locations.
@@ -25,14 +34,18 @@ def main():
      only, lines that start with `#` and blank lines are treated as comments
      and ignored.
 
-  If --deployment and --pod_name_regex are both provided, kmux will select pods
-  that are both in the given deployment and match the given regex.
+  The options `--deployment`, `--pod_name_regex`, `--field_selector`, and
+  `--label_selector` all function as filters that are ANDed together.
 
-  If --pods is given, then both --deployment and --pod_name_regex are ignored.
+  If `--pods` is given, all four of the above options are ignored.
   """
   parser = argparse.ArgumentParser(description=description, formatter_class=argparse.RawTextHelpFormatter)
   parser.add_argument('--pods', '-p', metavar='PODS', type=str,
                       help='Whitespace-separated list of pods. When given, -r is ignored.')
+  parser.add_argument('--kube_context', '-k',
+                      metavar='KUBE_CONTEXT',
+                      type=str,
+                      help='The Kubernetes context to pull pods from. Defaults to current context.')
   parser.add_argument('--pod_name_regex', '-r',
                       metavar='POD_NAME_REGEX',
                       type=re.compile,
@@ -43,14 +56,11 @@ def main():
                       help='Equivalent to kubectl get pods --selector.')
   parser.add_argument('--field_selector', '--field-selector', '-f', metavar='FIELD_SELECTOR', type=str,
                       help='Equivalent to kubectl get pods --field-selector.')
-  parser.add_argument('--kube_context', '-k',
-                      metavar='KUBE_CONTEXT',
-                      type=str,
-                      help='The Kubernetes context to pull pods from. Defaults to current context.')
   parser.add_argument('--no_create', '-n', action='store_true',
-                      help='Do not create new tmux windows and panes. Run the ' +
-                      'commands in only the first found pod in the current ' +
-                      'window. One pane will be created if kmux is not started inside a tmux.')
+                      help=
+                       'Do not create new tmux windows and panes. Run the commands in only the\n' +
+                       'first found pod in the current window. One pane will be created if kmux\n' +
+                       'is not started inside a tmux.')
   parser.add_argument('--dry_run', action='store_true',
                       help='Do not run any tmux commands. Instead, write an smux file to stdout.')
   parser.add_argument('commands_file', nargs='?',
