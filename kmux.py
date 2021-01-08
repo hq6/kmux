@@ -105,7 +105,6 @@ def main():
   if 'namespace' in config.list_kube_config_contexts()[1]['context']:
       current_namespace = config.list_kube_config_contexts()[1]['context']['namespace']
 
-  PODS = None
   KUBE_CONTEXT = None
   KUBE_NAMESPACE = "default"
 
@@ -137,19 +136,32 @@ def main():
   if KUBE_NAMESPACE is None:
       KUBE_NAMESPACE = "default"
 
-  if options.pods:
-    PODS = options.pods.split()
-  else:
-    api_client = config.new_client_from_config(context=KUBE_CONTEXT)
-    core_kube_client = client.CoreV1Api(api_client=api_client)
+  # SDK wrappers for Kube APIs
+  api_client = config.new_client_from_config(context=KUBE_CONTEXT)
+  core_kube_client = client.CoreV1Api(api_client=api_client)
+  apps_kube_client = client.AppsV1Api(api_client=api_client)
 
+  if options.pods:
+    pods = options.pods.split()
+    if not options.all_namespaces:
+        podObjects = core_kube_client.list_namespaced_pod(KUBE_NAMESPACE).items
+    else:
+        podObjects = core_kube_client.list_pod_for_all_namespaces().items
+    podObjects = [pod for pod in podObjects if pod.metadata.name in pods]
+    # Note that if a pod name appears in multiple namespaces, it will be
+    # duplicated, which seems desirable since the namespace will be different.
+    if len(podObjects) < len(pods):
+        print('The following requested pods do not exist in either all namespaces ' +
+              'or specified namespace: ')
+        print(set(pods).difference(set([pod.metadata.name for pod in podObjects])))
+        sys.exit(1)
+  else:
     # Constrain the pods selected by deployment, if given. We first check for
     # the deployment option because it may introdue new label_selectors.
     # 1. Find all ReplicaSets that are owned by the target deployment.
     # 2. Find all pods owned by the target replica set or replica sets.
     deployment_label_selector = None
     if options.deployment:
-        apps_kube_client = client.AppsV1Api(api_client=api_client)
         if not options.all_namespaces:
             deployments = apps_kube_client.list_namespaced_deployment(KUBE_NAMESPACE,
                     field_selector=f"metadata.name={options.deployment}").items
@@ -200,16 +212,17 @@ def main():
     if options.pod_name_regex:
       podObjects = [pod for pod in podObjects if options.pod_name_regex.match(pod.metadata.name)]
 
-    PODS = [pod.metadata.name for pod in podObjects]
-  if not PODS:
+  if not podObjects:
     print("No pods selected.")
     return
   ################################################################################
+  # When all_namespaces is specified, we may have pods in different namespaces,
+  # so it is more correct to get the namespace from the actual pods selected.
   pod_commands = [[
-      f'POD={POD}',
+      f'POD={pod.metadata.name}',
       f'KUBE_CONTEXT={KUBE_CONTEXT}',
-      f'KUBE_NAMESPACE={KUBE_NAMESPACE}'] +
-      (commands) for POD in PODS]
+      f'KUBE_NAMESPACE={pod.metadata.namespace}'] +
+      (commands) for pod in podObjects]
 
   if options.dry_run:
       if options.no_create:
