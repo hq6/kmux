@@ -47,7 +47,7 @@ Usage
 
 setup(
   name="kmux.py",
-  version='0.1.11',
+  version='0.1.12',
   author="Henry Qin",
   author_email="root@hq6.me",
   description="Tmux launcher for kubernetes",
