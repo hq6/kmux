@@ -39,6 +39,9 @@ def main():
 
   If `--pods` is given, all four of the above options are ignored.
   """
+  def selector_join(*args):
+        output = ','.join([x for x in args if x is not None])
+        return output if not output  == '' else None
   parser = argparse.ArgumentParser(description=description, formatter_class=argparse.RawTextHelpFormatter)
   parser.add_argument('--pods', '-p', metavar='PODS', type=str,
                       help='Whitespace-separated list of pods. When given, -r is ignored.')
@@ -126,26 +129,13 @@ def main():
     PODS = options.pods.split()
   else:
     api_client = config.new_client_from_config(context=KUBE_CONTEXT)
-    # Collect all the pods in the context.
     core_kube_client = client.CoreV1Api(api_client=api_client)
-    if KUBE_NAMESPACE is not None:
-        podObjects = core_kube_client.list_namespaced_pod(KUBE_NAMESPACE,
-            label_selector=options.label_selector,
-            field_selector=options.field_selector).items
-    else:
-        podObjects = core_kube_client.list_pod_for_all_namespaces(
-            label_selector=options.label_selector,
-            field_selector=options.field_selector).items
 
-    # Filter by deployment if given.
+    # Constrain the pods selected by deployment, if given. We first check for
+    # the deployment option because it may introdue new label_selectors.
     # 1. Find all ReplicaSets that are owned by the target deployment.
     # 2. Find all pods owned by the target replica set or replica sets.
-    #
-    # Note that this relies only on owner_references and could be optimized by
-    # using the deployment selector to pre-filter.
-    # However, hqin decided to hold off on this until someone complains about
-    # having such a huge number of pods in a namespace that enumerating them
-    # all would be substantially slow down kmux.
+    deployment_label_selector = None
     if options.deployment:
         apps_kube_client = client.AppsV1Api(api_client=api_client)
         if KUBE_NAMESPACE is not None:
@@ -166,18 +156,31 @@ def main():
             sys.exit(1)
 
         labels = chosen_deployment.spec.selector.match_labels
-        label_selector = ",".join([f"{key}={value}" for key, value in labels.items()])
+        deployment_label_selector = ",".join([f"{key}={value}" for key, value in labels.items()])
         if KUBE_NAMESPACE is not None:
             replica_sets = apps_kube_client.list_namespaced_replica_set(KUBE_NAMESPACE,
-                    label_selector=label_selector).items
+                    label_selector=deployment_label_selector).items
         else:
             replica_sets = apps_kube_client.list_replica_set_for_all_namespaces(
-                    label_selector=label_selector).items
+                    label_selector=deployment_label_selector).items
 
         replica_sets = [x for x in replica_sets if not x.spec.replicas == 0 and \
             x.metadata.owner_references and \
             x.metadata.owner_references[0].uid == chosen_deployment.metadata.uid]
         replica_set_uids = [x.metadata.uid for x in replica_sets]
+
+    # Collect the pods matching the constraints.
+    if KUBE_NAMESPACE is not None:
+        podObjects = core_kube_client.list_namespaced_pod(KUBE_NAMESPACE,
+            label_selector=selector_join(options.label_selector, deployment_label_selector),
+            field_selector=options.field_selector).items
+    else:
+        podObjects = core_kube_client.list_pod_for_all_namespaces(
+            label_selector=selector_join(options.label_selector, deployment_label_selector),
+            field_selector=options.field_selector).items
+
+    # Filter by deployments explicitly since selectors are not always reliable.
+    if options.deployment:
         podObjects = [pod for pod in podObjects if pod.metadata.owner_references and \
             pod.metadata.owner_references[0].uid in replica_set_uids]
 
