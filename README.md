@@ -40,6 +40,3 @@ Automatic Method:
       You may also specify a target context with the command line option
       `--kube_context`. It will exhibit undefined behavior if there is no
       current context and no context has been specified.
-
-## Sample kmux inputs:
- * TODO(hq6): Add some sample inputs.
