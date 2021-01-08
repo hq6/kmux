@@ -61,6 +61,8 @@ def main():
                       help='Equivalent to kubectl get pods --selector.')
   parser.add_argument('--field_selector', '--field-selector', '-f', metavar='FIELD_SELECTOR', type=str,
                       help='Equivalent to kubectl get pods --field-selector.')
+  parser.add_argument('--all_namespaces','--all-namespaces', action='store_true',
+                      help='Equivalent to kubectl get pods --all-namespaces')
   parser.add_argument('--no_create', action='store_true', help=
                        'Do not create new tmux windows and panes. Run the commands in only the\n' +
                        'first found pod in the current window. One pane will be created if kmux\n' +
@@ -105,7 +107,7 @@ def main():
 
   PODS = None
   KUBE_CONTEXT = None
-  KUBE_NAMESPACE = None
+  KUBE_NAMESPACE = "default"
 
   if options.kube_context:
     KUBE_CONTEXT = options.kube_context
@@ -143,7 +145,7 @@ def main():
     deployment_label_selector = None
     if options.deployment:
         apps_kube_client = client.AppsV1Api(api_client=api_client)
-        if KUBE_NAMESPACE is not None:
+        if not options.all_namespaces:
             deployments = apps_kube_client.list_namespaced_deployment(KUBE_NAMESPACE,
                     field_selector=f"metadata.name={options.deployment}").items
         else:
@@ -162,7 +164,7 @@ def main():
 
         labels = chosen_deployment.spec.selector.match_labels
         deployment_label_selector = ",".join([f"{key}={value}" for key, value in labels.items()])
-        if KUBE_NAMESPACE is not None:
+        if not options.all_namespaces:
             replica_sets = apps_kube_client.list_namespaced_replica_set(KUBE_NAMESPACE,
                     label_selector=deployment_label_selector).items
         else:
@@ -175,7 +177,7 @@ def main():
         replica_set_uids = [x.metadata.uid for x in replica_sets]
 
     # Collect the pods matching the constraints.
-    if KUBE_NAMESPACE is not None:
+    if not options.all_namespaces:
         podObjects = core_kube_client.list_namespaced_pod(KUBE_NAMESPACE,
             label_selector=selector_join(options.label_selector, deployment_label_selector),
             field_selector=options.field_selector).items
@@ -201,7 +203,7 @@ def main():
   pod_commands = [[
       f'POD={POD}',
       f'KUBE_CONTEXT={KUBE_CONTEXT}',
-      *([f'KUBE_NAMESPACE={KUBE_NAMESPACE}',] if KUBE_NAMESPACE is not None else [])] + \
+      f'KUBE_NAMESPACE={KUBE_NAMESPACE}'] +
       (commands) for POD in PODS]
 
   if options.dry_run:
