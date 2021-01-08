@@ -132,6 +132,11 @@ def main():
   if options.namespace:
       KUBE_NAMESPACE = options.namespace
 
+  # Namespace should never be None. Some contexts seem to be able to override
+  # it to None, so we restore it here.
+  if KUBE_NAMESPACE is None:
+      KUBE_NAMESPACE = "default"
+
   if options.pods:
     PODS = options.pods.split()
   else:
