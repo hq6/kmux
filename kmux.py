@@ -150,10 +150,12 @@ def main():
         apps_kube_client = client.AppsV1Api(api_client=api_client)
         if KUBE_NAMESPACE is not None:
             replica_sets = apps_kube_client.list_namespaced_replica_set(KUBE_NAMESPACE).items
-            deployments = apps_kube_client.list_namespaced_deployment(KUBE_NAMESPACE).items
+            deployments = apps_kube_client.list_namespaced_deployment(KUBE_NAMESPACE,
+                    field_selector=f"metadata.name={options.deployment}").items
         else:
             replica_sets = apps_kube_client.list_replica_set_for_all_namespaces().items
-            deployments = apps_kube_client.list_deployment_for_all_namespaces().items
+            deployments = apps_kube_client.list_deployment_for_all_namespaces(
+                    field_selector=f"metadata.name={options.deployment}").items
         # Search for matching deployment.
         deployment_uid = None
         for deployment in deployments:
