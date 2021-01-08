@@ -49,6 +49,8 @@ def main():
                       metavar='KUBE_CONTEXT',
                       type=str,
                       help='The Kubernetes context to pull pods from. Defaults to current context.')
+  parser.add_argument('--namespace', '-n', metavar='NAMESPACE', type=str,
+                      help='Namespace to select K8 objects from.')
   parser.add_argument('--pod_name_regex', '-r',
                       metavar='POD_NAME_REGEX',
                       type=re.compile,
@@ -59,8 +61,7 @@ def main():
                       help='Equivalent to kubectl get pods --selector.')
   parser.add_argument('--field_selector', '--field-selector', '-f', metavar='FIELD_SELECTOR', type=str,
                       help='Equivalent to kubectl get pods --field-selector.')
-  parser.add_argument('--no_create', '-n', action='store_true',
-                      help=
+  parser.add_argument('--no_create', action='store_true', help=
                        'Do not create new tmux windows and panes. Run the commands in only the\n' +
                        'first found pod in the current window. One pane will be created if kmux\n' +
                        'is not started inside a tmux.')
@@ -124,6 +125,10 @@ def main():
   else:
     KUBE_CONTEXT = current_context
     KUBE_NAMESPACE = current_namespace
+
+  # Override namespace here if it is explicitly specified.
+  if options.namespace:
+      KUBE_NAMESPACE = options.namespace
 
   if options.pods:
     PODS = options.pods.split()
