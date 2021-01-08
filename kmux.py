@@ -67,7 +67,7 @@ def main():
                        'Do not create new tmux windows and panes. Run the commands in only the\n' +
                        'first found pod in the current window. One pane will be created if kmux\n' +
                        'is not started inside a tmux.')
-  parser.add_argument('--dry_run', action='store_true',
+  parser.add_argument('--dry_run', '--dry-run', action='store_true',
                       help='Do not run any tmux commands. Instead, write an smux file to stdout.')
   parser.add_argument('commands_file', nargs='?',
                       type=argparse.FileType('r'),
