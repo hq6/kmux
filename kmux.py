@@ -1,12 +1,94 @@
-#!/usr/bin/env python3
+#!/opt/homebrew/opt/python@3.12/bin/python3.12
 
 import argparse
+import json
 import sys, os
 import re
 import shlex
 import smux
 from sys import argv
-from kubernetes import client, config
+from subprocess import Popen, PIPE
+
+def kget(cmd):
+    """Execute the given command synchronously and return any output."""
+    proc = Popen(cmd, stdout=PIPE, stderr=PIPE, shell=True)
+    out, err = proc.communicate()
+    exitcode = proc.returncode
+    if exitcode:
+      print(f"""
+Received nonzero exit code {exitcode} when running {cmd}.
+Stdout:
+  {out.decode("utf-8")}
+Stderr:
+  {err.decode("utf-8")}
+"""
+      )
+
+    return out.decode("utf-8")
+
+def get_config():
+  output = kget("kubectl config view -o json")
+  return json.loads(output)
+
+def get_pods(context, namespace, label_selector = None, field_selector = None):
+  options = "-ojson"
+  if namespace:
+    options += f" -n {namespace}"
+  if label_selector:
+    options += f" --selector {label_selector}"
+  if field_selector:
+    options += f" --field-selector {field_selector}"
+  cmd = f"""
+    kubectl --context {context} get pods {options}
+  """
+  return json.loads(kget(cmd.strip()))
+
+def get_pods_all_namespace(context, label_selector = None, field_selector = None):
+  options = ""
+  if label_selector:
+    options += f" --selector {label_selector}"
+  if field_selector:
+    options += f" --field-selector {field_selector}"
+  cmd = f"""
+    kubectl --context {context}  get pods -ojson --all-namespaces {options}
+  """
+  return json.loads(kget(cmd.strip()))
+
+def get_deployment_all_namespaces(context, name):
+  cmd = f"""
+  kubectl --context {context} get deployments --all-namespaces\\
+      --field-selector 'metadata.name={name}' -ojson
+  """
+  return json.loads(kget(cmd.strip()))
+
+def get_deployment(context, namespace, name):
+  cmd = f"""
+  kubectl --context {context} get deployments -n {namespace}\\
+      --field-selector 'metadata.name={name}' -ojson
+  """
+  return json.loads(kget(cmd.strip()))
+
+def get_replicaset_all_namespaces(context, label_selector=None):
+  options = "-ojson --all-namespaces"
+  if label_selector:
+    options += f" --selector {label_selector}"
+  cmd = f"""
+  kubectl --context {context} get replicaset {options}
+  """
+  return json.loads(kget(cmd.strip()))
+
+def get_replicaset(context, namespace, label_selector=None):
+  options = "-ojson"
+  if namespace:
+    options += f" -n {namespace}"
+  if label_selector:
+    options += f" --selector '{label_selector}'"
+  cmd = f"""
+  kubectl --context {context} get replicaset {options}
+  """
+  return json.loads(kget(cmd.strip()))
+
+
 
 def main():
   description = """\
@@ -45,7 +127,7 @@ def main():
   parser = argparse.ArgumentParser(description=description, formatter_class=argparse.RawTextHelpFormatter)
   parser.add_argument('--pods', '-p', metavar='PODS', type=str,
                       help='Whitespace-separated list of pods. When given, -r is ignored.')
-  parser.add_argument('--kube_context', '-k',
+  parser.add_argument('--kube_context', '--kube-context', '--context', '-k',
                       metavar='KUBE_CONTEXT',
                       type=str,
                       help='The Kubernetes context to pull pods from. Defaults to current context.')
@@ -98,12 +180,18 @@ def main():
     commands = commands[:-1]
   ################################################################################
   # Load K8 config and Initialize magic variables
-  config.load_kube_config()
-  contexts = config.list_kube_config_contexts()[0]
-  current_context = config.list_kube_config_contexts()[1]['name']
-  current_namespace = None
-  if 'namespace' in config.list_kube_config_contexts()[1]['context']:
-      current_namespace = config.list_kube_config_contexts()[1]['context']['namespace']
+  config = get_config()
+  contexts = config["contexts"]
+  current_context = config["current-context"]
+  if current_context:
+    current_context_obj = list(filter(lambda x: x["name"] == current_context, config["contexts"]))[0]["context"]
+    current_namespace = None
+    if current_context_obj and 'namespace' in current_context_obj:
+        current_namespace = current_context_obj['namespace']
+  elif not options.kube_context:
+    print("There is no current context set, and --kube_context is not passed.\n" +
+    "Please either set the current context or pass --kube_context.", file=sys.stderr)
+    sys.exit(1)
 
   KUBE_CONTEXT = None
   KUBE_NAMESPACE = "default"
@@ -137,23 +225,20 @@ def main():
       KUBE_NAMESPACE = "default"
 
   # SDK wrappers for Kube APIs
-  api_client = config.new_client_from_config(context=KUBE_CONTEXT)
-  core_kube_client = client.CoreV1Api(api_client=api_client)
-  apps_kube_client = client.AppsV1Api(api_client=api_client)
 
   if options.pods:
     pods = options.pods.split()
     if not options.all_namespaces:
-        podObjects = core_kube_client.list_namespaced_pod(KUBE_NAMESPACE).items
+        podObjects = get_pods(KUBE_CONTEXT, KUBE_NAMESPACE)["items"]
     else:
-        podObjects = core_kube_client.list_pod_for_all_namespaces().items
-    podObjects = [pod for pod in podObjects if pod.metadata.name in pods]
+        podObjects = get_pods_all_namespace(KUBE_CONTEXT)["items"]
+    podObjects = [pod for pod in podObjects if pod["metadata"]["name"] in pods]
     # Note that if a pod name appears in multiple namespaces, it will be
     # duplicated, which seems desirable since the namespace will be different.
     if len(podObjects) < len(pods):
         print('The following requested pods do not exist in either all namespaces ' +
               'or specified namespace: ')
-        print(set(pods).difference(set([pod.metadata.name for pod in podObjects])))
+        print(set(pods).difference(set([pod["metadata"]["name"] for pod in podObjects])))
         sys.exit(1)
   else:
     # Constrain the pods selected by deployment, if given. We first check for
@@ -163,15 +248,13 @@ def main():
     deployment_label_selector = None
     if options.deployment:
         if not options.all_namespaces:
-            deployments = apps_kube_client.list_namespaced_deployment(KUBE_NAMESPACE,
-                    field_selector=f"metadata.name={options.deployment}").items
+            deployments = get_deployment(KUBE_CONTEXT, KUBE_NAMESPACE, options.deployment)["items"]
         else:
-            deployments = apps_kube_client.list_deployment_for_all_namespaces(
-                    field_selector=f"metadata.name={options.deployment}").items
+            deployments = get_deployment_all_namespaces(KUBE_CONTEXT, options.deployment)["items"]
         # Search for matching deployment.
         chosen_deployment = None
         for deployment in deployments:
-            if deployment.metadata.name == options.deployment:
+            if deployment["metadata"]["name"] == options.deployment:
                 chosen_deployment = deployment
                 break
         if chosen_deployment is None:
@@ -179,38 +262,38 @@ def main():
                 f'"{KUBE_NAMESPACE}" of context "{KUBE_CONTEXT}".')
             sys.exit(1)
 
-        labels = chosen_deployment.spec.selector.match_labels
+        labels = chosen_deployment["spec"]["selector"]["matchLabels"]
         deployment_label_selector = ",".join([f"{key}={value}" for key, value in labels.items()])
         if not options.all_namespaces:
-            replica_sets = apps_kube_client.list_namespaced_replica_set(KUBE_NAMESPACE,
-                    label_selector=deployment_label_selector).items
+            replica_sets = get_replicaset(KUBE_CONTEXT, KUBE_NAMESPACE,
+                    label_selector=deployment_label_selector)["items"]
         else:
-            replica_sets = apps_kube_client.list_replica_set_for_all_namespaces(
-                    label_selector=deployment_label_selector).items
+            replica_sets = get_replicaset_all_namespaces(KUBE_CONTEXT,
+                    label_selector=deployment_label_selector)["items"]
 
-        replica_sets = [x for x in replica_sets if not x.spec.replicas == 0 and \
-            x.metadata.owner_references and \
-            x.metadata.owner_references[0].uid == chosen_deployment.metadata.uid]
-        replica_set_uids = [x.metadata.uid for x in replica_sets]
+        replica_sets = [x for x in replica_sets if not x["spec"]["replicas"] == 0 and \
+            x["metadata"]["ownerReferences"] and \
+            x["metadata"]["ownerReferences"][0]["uid"] == chosen_deployment["metadata"]["uid"]]
+        replica_set_uids = [x["metadata"]["uid"] for x in replica_sets]
 
     # Collect the pods matching the constraints.
     if not options.all_namespaces:
-        podObjects = core_kube_client.list_namespaced_pod(KUBE_NAMESPACE,
+        podObjects = get_pods(KUBE_CONTEXT, KUBE_NAMESPACE,
             label_selector=selector_join(options.label_selector, deployment_label_selector),
-            field_selector=options.field_selector).items
+            field_selector=options.field_selector)["items"]
     else:
-        podObjects = core_kube_client.list_pod_for_all_namespaces(
+        podObjects = get_pods_all_namespace(KUBE_CONTEXT,
             label_selector=selector_join(options.label_selector, deployment_label_selector),
-            field_selector=options.field_selector).items
+            field_selector=options.field_selector)["items"]
 
     # Filter by deployments explicitly since selectors are not always reliable.
     if options.deployment:
-        podObjects = [pod for pod in podObjects if pod.metadata.owner_references and \
-            pod.metadata.owner_references[0].uid in replica_set_uids]
+        podObjects = [pod for pod in podObjects if pod["metadata"]["ownerReferences"] and \
+            pod["metadata"]["ownerReferences"][0]["uid"] in replica_set_uids]
 
     # Filter by regex if given
     if options.pod_name_regex:
-      podObjects = [pod for pod in podObjects if options.pod_name_regex.match(pod.metadata.name)]
+      podObjects = [pod for pod in podObjects if options.pod_name_regex.match(pod["metadata"]["name"])]
 
   if not podObjects:
     print("No pods selected.")
@@ -219,9 +302,9 @@ def main():
   # When all_namespaces is specified, we may have pods in different namespaces,
   # so it is more correct to get the namespace from the actual pods selected.
   pod_commands = [[
-      f'POD={pod.metadata.name}',
+      f'POD={pod["metadata"]["name"]}',
       f'KUBE_CONTEXT={KUBE_CONTEXT}',
-      f'KUBE_NAMESPACE={pod.metadata.namespace}'] +
+      f'KUBE_NAMESPACE={pod["metadata"]["namespace"]}'] +
       (commands) for pod in podObjects]
 
   if options.dry_run:
